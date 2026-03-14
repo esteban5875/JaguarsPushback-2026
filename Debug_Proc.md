@@ -1,4 +1,4 @@
-# Spec
+# Debug Process
 
 ## How to Debug
 
