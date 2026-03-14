@@ -1,114 +1,67 @@
 # Main
 
-This project is built so `main.cpp` feels like a small list of commands.
-You do not need to know how motors, drivetrain math, or engine code work.
-In `main.cpp`, you only do two jobs:
+This project is built so `main.cpp` feels like a short list of commands.
+You do not need to write drivetrain math, controller loops, or engine logic.
 
-1. Tell the project what robot you have.
-2. Tell the project where the robot should go.
+After this update, `main.cpp` only does four jobs:
 
-## How To Use The Wrappers
+1. add robot parts
+2. set controller buttons
+3. choose the driver movement type
+4. add waypoints
 
-Think of each wrapper like a command.
-You write one line, change the numbers, and the project handles the hard part.
+`pre_auton.cpp` now does the startup work for you.
+It resets the robot state and turns Brain verbose mode on before the main setup lines are loaded.
 
-The project already gives you two places to write those commands:
+## Where To Write Things
 
-1. `loadPrototypeRobot()` for robot setup
-2. `loadPrototypeRoute()` for autonomous steps
+Write robot hardware in `loadPrototypeRobot()`.
+Write controller button and movement lines in `loadPrototypeButtons()`.
+Write autonomous route lines in `loadPrototypeRoute()`.
 
-Put robot hardware lines in `loadPrototypeRobot()`.
-Put route lines in `loadPrototypeRoute()`.
+That means `main.cpp` now reads like:
 
-## Robot Setup Commands
+- what hardware the robot has
+- which buttons run which action
+- how the driver moves the drivetrain
+- which autonomous steps should run
 
-Write these inside `loadPrototypeRobot()`.
+## Parts You Add In `loadPrototypeRobot()`
 
-`RobotFactory::reset();`
-
-Use this first.
-It clears the old robot setup so you start fresh.
-
-If you forget this, old setup data can stay in memory.
-That can make debugging confusing, so this should stay as the first line.
+These are the setup wrappers you use there.
+Think of them like build commands for the robot.
 
 `RobotFactory::setController(ROBOT_CONTROLLER_PRIMARY);`
 
-Use this if you want the main handheld controller.
-If you want the partner controller, use `ROBOT_CONTROLLER_PARTNER`.
-
-This is optional for autonomous movement.
-It mainly tells the robot wrapper which controller belongs to the build.
-
-`RobotFactory::setBrain();`
-
-Use this only if you want to say clearly that the robot has a brain.
-Most of the time you can skip it because the robot already starts with one.
+This adds the handheld controller to the robot build.
+Use `ROBOT_CONTROLLER_PARTNER` instead if you want the partner controller.
 
 `RobotFactory::setIntake(intake, 1);`
 
-Use this after you make an intake motor list.
-This tells the project which motor or motors are the intake.
-
-The second number is the motor count.
-If your intake uses two motors, pass `2` instead of `1`.
+This adds the intake motor group.
+The second number is how many motors are in the intake list.
 
 `RobotFactory::setDrivetrain(leftDrive, 2, rightDrive, 2, 319.19, 320.0, 130.0, ROBOT_DISTANCE_MM, 1.0);`
 
-Use this after you make the left and right drive motor lists.
-This is the command that gives the engine a drivetrain to move.
+This adds the drivetrain.
+If this line is missing, autonomous and driver control cannot move the robot.
 
-The values after the motor lists are the same kind of physical values the VEX drivetrain uses:
+## Making Motor Lists
 
-- wheel travel
-- track width
-- wheel base
-- distance unit
-- external gear ratio
-
-If this command is missing, the engine cannot move the robot.
-In that case the Brain log will say `No drivetrain configured`.
-
-## Making A Motor List
-
-Before `setIntake(...)` or `setDrivetrain(...)`, you make a small list of motors.
-Each motor uses:
+Before you call `setIntake(...)` or `setDrivetrain(...)`, you create motor lists.
+Each motor uses three values:
 
 - port number
 - gear type
 - reversed or not reversed
 
-The available gear wrappers are:
+Gear wrapper values:
 
 - `ROBOT_GEAR_36_1`
 - `ROBOT_GEAR_18_1`
 - `ROBOT_GEAR_6_1`
 
-Example:
-
-```cpp
-RobotMotor leftDrive[2] = {
-  {1, ROBOT_GEAR_18_1, false},
-  {2, ROBOT_GEAR_18_1, false}
-};
-```
-
-Read that like this:
-
-- motor on port 1
-- 18:1 cartridge
-- normal direction
-
-and:
-
-- motor on port 2
-- 18:1 cartridge
-- normal direction
-
-If a motor spins the wrong way on the real robot, change `false` to `true`.
-If one whole side of the drivetrain drives backward, usually the right side needs `true`.
-
-Example intake with one motor:
+Example intake list:
 
 ```cpp
 RobotMotor intake[1] = {
@@ -116,7 +69,7 @@ RobotMotor intake[1] = {
 };
 ```
 
-Example drivetrain with two motors per side:
+Example drivetrain lists:
 
 ```cpp
 RobotMotor leftDrive[2] = {
@@ -130,52 +83,108 @@ RobotMotor rightDrive[2] = {
 };
 ```
 
-After writing those lists, connect them with:
+If a motor spins the wrong way on the real robot, change `false` to `true`.
+If one whole side of the drive feels backward, the right side often needs `true`.
+
+The drivetrain numbers after the motor lists are physical robot values:
+
+- wheel travel
+- track width
+- wheel base
+- distance unit
+- external gear ratio
+
+## Buttons You Set In `loadPrototypeButtons()`
+
+Use this wrapper there:
+
+`setControllerButtons(intakeInButton, intakeForwardButton);`
+
+This tells driver control which buttons should run the intake inward and which button should run it forward.
+The driver module does not need any more intake button code than that.
+
+Available button wrappers:
+
+- `CONTROLLER_BUTTON_NONE`
+- `CONTROLLER_BUTTON_L1`
+- `CONTROLLER_BUTTON_L2`
+- `CONTROLLER_BUTTON_R1`
+- `CONTROLLER_BUTTON_R2`
+- `CONTROLLER_BUTTON_UP`
+- `CONTROLLER_BUTTON_DOWN`
+- `CONTROLLER_BUTTON_LEFT`
+- `CONTROLLER_BUTTON_RIGHT`
+- `CONTROLLER_BUTTON_X`
+- `CONTROLLER_BUTTON_B`
+- `CONTROLLER_BUTTON_Y`
+- `CONTROLLER_BUTTON_A`
+
+Example:
 
 ```cpp
-RobotFactory::setDrivetrain(leftDrive,
-                            2,
-                            rightDrive,
-                            2,
-                            319.19,
-                            320.0,
-                            130.0,
-                            ROBOT_DISTANCE_MM,
-                            1.0);
+setControllerButtons(CONTROLLER_BUTTON_L1, CONTROLLER_BUTTON_L2);
 ```
 
-## Route Commands
+Read that like this:
 
-Write these inside `loadPrototypeRoute()`.
+- `L1` pulls the intake inward
+- `L2` pushes the intake forward
 
-`setBrainVerbose(true);`
+## Movement Type You Set In `loadPrototypeButtons()`
 
-Use `true` if you want the VEX Brain to show a live movement log.
-Use `false` if you want the robot to run quietly.
+Use this wrapper there:
 
-This only changes logging.
-It does not change how the robot drives.
+`set_movement_type(type);`
+
+This tells driver control how the drivetrain should be driven.
+You choose between `BUTTONS` mode and `AXIS` mode.
+
+`set_movement_type(BUTTONS);`
+
+This makes the controller arrow buttons drive the robot.
+The arrows work like this:
+
+- `Up` = forward
+- `Down` = backward
+- `Left` = turn left
+- `Right` = turn right
+
+You can press movement and turn buttons together.
+For example, `Up` and `Left` together will drive forward while turning left.
+
+`set_movement_type(AXIS);`
+
+This makes the right joystick drive the robot.
+The right joystick works like this:
+
+- right stick up/down = forward and backward
+- right stick left/right = turn
+
+This is the default mode after reset.
+If you do not set a movement type, the controller program falls back to `AXIS`.
+
+## Waypoints You Add In `loadPrototypeRoute()`
+
+Use this wrapper there:
 
 `addwaypoint(distance, direction, type, color);`
 
-Use one line like this for each step in the route.
-Write the steps in the same order you want the robot to follow them.
+Use one line per autonomous step.
+Write the lines in the same order you want the robot to follow them.
 
 What each part means:
 
-- `distance` = how far to drive
-- `direction` = which heading to face first
+- `distance` = how far to drive, in inches
+- `direction` = what heading to face first
 - `type` = what kind of step this is
 - `color` = optional team color tag
 
-Important details:
+Direction examples:
 
-- `distance` is in inches
-- `direction` is an absolute heading in degrees
-- `0` means face straight ahead from the starting direction
-- `90` means face right
-- `180` means face backward
-- `270` means face left
+- `0` = face forward
+- `90` = face right
+- `180` = face backward
+- `270` = face left
 
 Type values:
 
@@ -200,50 +209,45 @@ Read that like this:
 
 - turn to 90 degrees
 - drive 24 inches
-- treat this as an `OBJECT` step
+- treat the step as an `OBJECT`
 - tag it as blue
 
-Another example:
+Special waypoint behavior:
 
-```cpp
-addwaypoint(12.0f, 180, 3, 0);
-```
+- `OBJECT` runs intake inward during the step
+- `TARGET` runs intake forward during the step
+- `PARK` stops the route when reached
+- `COORD` keeps the route going normally
 
-Read that like this:
+If you place a `PARK` waypoint in the middle of the list, the robot will stop there and ignore the later waypoint lines.
+If you want the whole route to run, keep `PARK` at the end.
 
-- turn to face backward
-- drive 12 inches
-- treat it as a `PARK` step
-- do not attach a color tag
+## What `pre_auton.cpp` Does Now
 
-Extra behavior:
+You no longer need to reset the robot in `main.cpp`.
+You also no longer need to turn Brain verbose on there.
 
-- `OBJECT` makes the intake pull inward
-- `TARGET` makes the intake push forward
-- `PARK` ends the route when reached
-- `COORD` continues normally
+`pre_auton.cpp` now does this startup work:
 
-That means if you place a `PARK` waypoint in the middle of the list, the robot will stop there and ignore the lines after it.
-If you want the whole route to run, keep `PARK` as the last meaningful step.
+- resets the robot wrapper
+- resets the controller program
+- turns Brain verbose on
+
+That is why `main.cpp` can stay focused on parts, buttons, movement type, and waypoints.
 
 ## Simple Pattern To Follow
 
-If you want the shortest possible recipe, build `main.cpp` in this order:
+Use this order:
 
-1. Reset robot.
-2. Add controller if needed.
-3. Create motor lists.
-4. Set drivetrain.
-5. Set intake if you have one.
-6. Turn Brain verbose on or off.
-7. Add waypoints in order.
+1. In `pre_auton.cpp`, let the reset and verbose setup happen.
+2. In `loadPrototypeRobot()`, add controller, drivetrain, and intake.
+3. In `loadPrototypeButtons()`, set the movement type and intake buttons.
+4. In `loadPrototypeRoute()`, add the waypoint lines.
 
-Small template:
+Small working template:
 
 ```cpp
 void loadPrototypeRobot() {
-  RobotFactory::reset();
-
   RobotMotor leftDrive[2] = {
     {1, ROBOT_GEAR_18_1, false},
     {2, ROBOT_GEAR_18_1, false}
@@ -258,71 +262,85 @@ void loadPrototypeRobot() {
     {3, ROBOT_GEAR_18_1, false}
   };
 
+  RobotFactory::setController(ROBOT_CONTROLLER_PRIMARY);
   RobotFactory::setDrivetrain(leftDrive, 2, rightDrive, 2, 319.19, 320.0, 130.0, ROBOT_DISTANCE_MM, 1.0);
   RobotFactory::setIntake(intake, 1);
 }
 
+void loadPrototypeButtons() {
+  set_movement_type(AXIS);
+  setControllerButtons(CONTROLLER_BUTTON_L1, CONTROLLER_BUTTON_L2);
+}
+
 void loadPrototypeRoute() {
-  setBrainVerbose(true);
   addwaypoint(24.0f, 0, 4, 0);
   addwaypoint(18.0f, 90, 2, 1);
   addwaypoint(12.0f, 180, 3, 0);
 }
 ```
 
-If you can edit numbers in lines like these, you can use the project.
+If you can edit numbers and button names in lines like these, you can use the project.
 
 ## Project Explanation
 
-This project is split so each file has one job.
-`main.cpp` is the command sheet, the spec layer builds the robot, and the engine turns waypoints into movement.
+This project is split so each file has one clear job.
+`main.cpp` describes the build and route, the spec layer builds the robot, the control layer builds driver behavior, and the engine runs autonomous movement.
 
-That means you only write simple setup and route lines in `main.cpp`.
-The engine handles turning, driving, intake actions, stop rules, and Brain logs.
+That means the user-facing code stays simple.
+The lower-level VEX objects, loops, and motion behavior stay inside the project modules.
 
 The flow is:
 
-1. `main.cpp` builds the robot with wrapper commands.
-2. `main.cpp` adds waypoints with wrapper commands.
-3. `auton.cpp` tells the engine to start.
-4. The engine reads the robot and runs the path.
-5. The Brain log shows what happened if verbose mode is on.
+1. `pre_auton.cpp` clears startup state and turns verbose on.
+2. `main.cpp` adds parts.
+3. `main.cpp` sets controller buttons and movement type.
+4. `main.cpp` adds waypoints.
+5. `auton.cpp` tells the engine to run autonomous.
+6. `usercontrol.cpp` calls the controller program's `execute()` method.
 
 ## Tour
 
 `src/main.cpp`
 
-This is the main file you edit.
-It is where you describe the robot and the route.
+This is the file you edit most.
+It is where you add parts, buttons, movement type, and waypoints.
+
+`src/modules/pre_auton.cpp`
+
+This prepares the robot before the main setup runs.
+It resets the robot and turns Brain verbose on.
 
 `src/include/spec/robot_factory.h`
 
-This is the list of robot setup wrappers.
-If you want to know which robot commands you can call, look here.
+This is the list of robot part wrappers.
+If you want to know how to add hardware, start here.
 
 `src/modules/spec/robot_factory.cpp`
 
 This file builds the real VEX robot objects from your wrapper lines.
-You usually do not need to edit it when only changing ports or route steps.
+You usually only edit it when changing the architecture, not when changing ports.
+
+`src/include/control.h`
+
+This is the public wrapper for controller button setup and movement type setup.
+This is where `setControllerButtons(...)` and `set_movement_type(...)` come from.
+
+`src/modules/control/control_factory.cpp`
+
+This builds the controller program and contains its `execute()` method.
+That method is the only thing driver control needs to call.
 
 `src/include/engine.h`
 
-This is the list of public engine wrappers.
-Right now the important ones are `setBrainVerbose(...)` and `addwaypoint(...)`.
+This is the public autonomous wrapper list.
+The important main-facing function here is `addwaypoint(...)`.
 
 `src/modules/engine/engine.cpp`
 
-This is the movement engine.
-It reads the robot, follows the waypoints, runs the intake when needed, and writes the Brain log.
+This is the autonomous engine.
+It reads the robot, follows the waypoints, runs intake actions for `OBJECT` and `TARGET`, and stops on `PARK`.
 
-It also decides special behavior:
+`src/modules/usercontrol.cpp`
 
-- `OBJECT` runs intake inward
-- `TARGET` runs intake forward
-- `PARK` stops the route
-- `COORD` keeps going
-
-`src/modules/auton.cpp`
-
-This starts autonomous.
-It stays small because the engine does the real work.
+This is the driver control entrypoint.
+It stays tiny because it only calls the controller program's `execute()` method.
