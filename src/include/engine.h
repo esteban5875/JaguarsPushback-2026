@@ -9,5 +9,8 @@
 // Controls whether the engine writes detailed movement logs to the VEX Brain.
 void setBrainVerbose(bool enabled);
 
+// Writes a final idle-state marker to the VEX Brain verbose log.
+void logProgramHalt(void);
+
 // Queues one waypoint for autonomous execution.
 void addwaypoint(float distance, int direction, int type, int color = 0);

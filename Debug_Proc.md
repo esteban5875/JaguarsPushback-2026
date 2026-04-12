@@ -21,6 +21,7 @@ When verbose mode is on, the VEX Brain shows a short live log during autonomous.
 This lets you see what the engine is trying to do without reading the engine code.
 
 The log updates as the robot runs.
+When the screen fills up, the Brain keeps the newest log lines visible instead of wiping the whole log and starting over.
 It is meant to answer simple questions like these:
 
 - Did the engine see my waypoint?
@@ -64,6 +65,24 @@ Common line meanings:
 - `Turn left ...` or `Turn right ...` = turning action
 - `Drive forward ...` or `Drive reverse ...` = drive action
 - `Pose ...` = estimated robot position after the move
+
+### PID Tuning Debug Lines
+
+When the robot is moving, you will also see lines like this:
+
+```text
+PID drive: p=5.2 i=0.3 d=-0.1 out=50%
+Drive: err 2.34 in, correct 50%
+Turn: err 12.5 deg, correct 35%
+```
+
+What those lines mean:
+
+- `PID drive: p=5.2 i=0.3 d=-0.1 out=50%` = the proportional part is pushing 5.2, integral is adding 0.3, derivative is pulling -0.1, total output is 50% power
+- `Drive: err 2.34 in, correct 50%` = the robot is still 2.34 inches away from the target, so it's pushing 50% power to catch up
+- `Turn: err 12.5 deg, correct 35%` = the robot is still 12.5 degrees away from facing the right direction, so it's using 35% power to turn
+
+These lines show up every loop while the robot is moving. If the error numbers are not getting smaller, something is wrong with the tuning or the sensors.
 
 ### Driver Control Debug Notes
 
@@ -118,6 +137,11 @@ This is also normal.
 
 This means the engine finished the active route.
 If there was a `PARK` waypoint before the end, this message still appears after the stop.
+
+`Program Halt`
+
+This means the current procedure ended and the program is now sitting in its idle wait loop.
+If you see this after `Route complete`, the robot code is no longer doing active work.
 
 ### Quick Check
 

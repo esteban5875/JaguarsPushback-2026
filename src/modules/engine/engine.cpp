@@ -1,5 +1,7 @@
 #include "../../include/engine/private.h"
 #include "../../include/spec/private.h"
+#include "../pid/include/private.h"
+#include "../pid/include/params.h"
 
 #include <math.h>
 #include <stdarg.h>
@@ -11,7 +13,9 @@ vex::competition Competition;
 namespace {
 const double kPi = 3.14159265358979323846;
 const int kMaxBrainLogLines = 12;
+const int kBrainLogHistoryLines = 64;
 const int kLogBufferSize = 96;
+const int kMaxPidLoopCount = 400;
 const double kIntakeVelocityPct = 80.0;
 
 // These are prototype defaults for the two intake behaviors requested.
@@ -39,7 +43,9 @@ int RouteCount = 0;
 
 bool VerboseLoggingEnabled = false;
 bool VerboseLoggingConfigured = false;
-int BrainLogLine = 1;
+char BrainLogHistory[kBrainLogHistoryLines][kLogBufferSize];
+int BrainLogHistoryStart = 0;
+int BrainLogHistoryCount = 0;
 bool HardwareConfigured = false;
 
 // Default verbose state used until main overrides it with setBrainVerbose(...).
@@ -49,6 +55,8 @@ const bool kVerboseLoggingDefault = true;
 // tune it here without expanding the public engine API.
 RobotPose ConfiguredStartPose = {0.0, 0.0, 0.0};
 RobotPose EstimatedPose = {0.0, 0.0, 0.0};
+
+void logToBrain(const char* format, ...);
 
 Robot& activeRobot() {
   return getRobotInternal();
@@ -81,6 +89,160 @@ vex::motor_group* intakeFromRobot() {
   }
 
   return activeRobot().intake;
+}
+
+double averageMotorDegrees(vex::motor* motors[], int motorCount) {
+  double totalDegrees = 0.0;
+  int connectedMotors = 0;
+  int index = 0;
+
+  for (index = 0; index < motorCount; index++) {
+    if (motors[index] == NULL) {
+      continue;
+    }
+
+    totalDegrees += motors[index]->position(vex::rotationUnits::deg);
+    connectedMotors++;
+  }
+
+  if (connectedMotors == 0) {
+    return 0.0;
+  }
+
+  return totalDegrees / (double)connectedMotors;
+}
+
+double leftDriveMotorDegrees() {
+  return averageMotorDegrees(activeRobot().leftDriveMotors,
+                             activeRobot().leftDriveMotorCount);
+}
+
+double rightDriveMotorDegrees() {
+  return averageMotorDegrees(activeRobot().rightDriveMotors,
+                             activeRobot().rightDriveMotorCount);
+}
+
+double clampDriveCommand(double value, double maxMagnitude) {
+  const double limitedMagnitude = fabs(maxMagnitude);
+
+  if (limitedMagnitude <= 0.0) {
+    return 0.0;
+  }
+
+  if (value > limitedMagnitude) {
+    return limitedMagnitude;
+  }
+
+  if (value < -limitedMagnitude) {
+    return -limitedMagnitude;
+  }
+
+  return value;
+}
+
+void spinDriveGroupAtPct(vex::motor_group* driveGroup, double velocityPct) {
+  if (driveGroup == NULL) {
+    return;
+  }
+
+  if (fabs(velocityPct) < 0.01) {
+    driveGroup->stop(vex::brakeType::brake);
+    return;
+  }
+
+  if (velocityPct < 0.0) {
+    driveGroup->spin(vex::directionType::rev,
+                     fabs(velocityPct),
+                     vex::velocityUnits::pct);
+  } else {
+    driveGroup->spin(vex::directionType::fwd,
+                     velocityPct,
+                     vex::velocityUnits::pct);
+  }
+}
+
+void applyPidDriveOutput(const PidOutputPayload& output, double maxCommandPct) {
+  const double leftCommand = clampDriveCommand(output.left_command_pct, maxCommandPct);
+  const double rightCommand = clampDriveCommand(output.right_command_pct, maxCommandPct);
+
+  spinDriveGroupAtPct(activeRobot().leftDrive, leftCommand);
+  spinDriveGroupAtPct(activeRobot().rightDrive, rightCommand);
+}
+
+void stopDriveBase(vex::brakeType stopMode) {
+  if (!robotHasDrivetrain()) {
+    return;
+  }
+
+  activeRobot().leftDrive->stop(stopMode);
+  activeRobot().rightDrive->stop(stopMode);
+}
+
+int pidMoveFinished(const PidOutputPayload& output,
+                    double expectedDriveInches,
+                    double expectedTurnDegrees) {
+  int finished = 1;
+
+  if (fabs(expectedDriveInches) >= 0.01 && !output.drive_is_settled) {
+    finished = 0;
+  }
+
+  if (fabs(expectedTurnDegrees) >= 0.01 && !output.turn_is_settled) {
+    finished = 0;
+  }
+
+  return finished;
+}
+
+PidOutputPayload runPidMove(double expectedDriveInches,
+                            double expectedTurnDegrees,
+                            double maxCommandPct,
+                            vex::brakeType stopMode) {
+  PidOutputPayload output;
+  int loopCount = 0;
+
+  output = pid_run_from_motor_input(leftDriveMotorDegrees(),
+                                    rightDriveMotorDegrees(),
+                                    expectedDriveInches,
+                                    expectedTurnDegrees,
+                                    1);
+
+  while (true) {
+    applyPidDriveOutput(output, maxCommandPct);
+
+    if (pidMoveFinished(output, expectedDriveInches, expectedTurnDegrees)) {
+      break;
+    }
+
+    loopCount++;
+    if (loopCount >= kMaxPidLoopCount) {
+      logToBrain("PID move timeout");
+      break;
+    }
+
+    wait(pid_loop_delay_msec, vex::msec);
+
+    output = pid_run_from_motor_input(leftDriveMotorDegrees(),
+                                      rightDriveMotorDegrees(),
+                                      expectedDriveInches,
+                                      expectedTurnDegrees,
+                                      0);
+
+    logToBrain("PID drive: p=%.1f i=%.1f d=%.1f out=%.0f%%",
+               pid_drive_kp * pid_drive_error_inches,
+               pid_drive_ki * pid_drive_integral,
+               pid_drive_kd * pid_drive_derivative,
+               pid_drive_output_pct);
+    logToBrain("Drive: err %.2f in, correct %.0f%%",
+               pid_drive_error_inches,
+               pid_drive_output_pct);
+    logToBrain("Turn: err %.1f deg, correct %.0f%%",
+               pid_turn_error_degrees,
+               pid_turn_output_pct);
+  }
+
+  stopDriveBase(stopMode);
+  return output;
 }
 
 double wrapHeadingDegrees(double degrees) {
@@ -196,8 +358,56 @@ void resetBrainLog() {
     return;
   }
 
+  BrainLogHistoryStart = 0;
+  BrainLogHistoryCount = 0;
   robotBrain().Screen.clearScreen();
-  BrainLogLine = 1;
+}
+
+void renderBrainLogHistory() {
+  int visibleCount = 0;
+  int visibleOffset = 0;
+  int line = 0;
+
+  if (!VerboseLoggingEnabled) {
+    return;
+  }
+
+  robotBrain().Screen.clearScreen();
+
+  visibleCount = BrainLogHistoryCount;
+  if (visibleCount > kMaxBrainLogLines) {
+    visibleCount = kMaxBrainLogLines;
+  }
+
+  visibleOffset = BrainLogHistoryCount - visibleCount;
+
+  for (line = 0; line < visibleCount; line++) {
+    const int historyIndex =
+        (BrainLogHistoryStart + visibleOffset + line) % kBrainLogHistoryLines;
+
+    robotBrain().Screen.setCursor(line + 1, 1);
+    robotBrain().Screen.print("%s", BrainLogHistory[historyIndex]);
+  }
+}
+
+void appendBrainLogLine(const char* text) {
+  int historyIndex = 0;
+
+  if (!VerboseLoggingEnabled) {
+    return;
+  }
+
+  if (BrainLogHistoryCount < kBrainLogHistoryLines) {
+    historyIndex =
+        (BrainLogHistoryStart + BrainLogHistoryCount) % kBrainLogHistoryLines;
+    BrainLogHistoryCount++;
+  } else {
+    historyIndex = BrainLogHistoryStart;
+    BrainLogHistoryStart = (BrainLogHistoryStart + 1) % kBrainLogHistoryLines;
+  }
+
+  snprintf(BrainLogHistory[historyIndex], kLogBufferSize, "%s", text);
+  renderBrainLogHistory();
 }
 
 void logToBrain(const char* format, ...) {
@@ -208,19 +418,11 @@ void logToBrain(const char* format, ...) {
     return;
   }
 
-  if (BrainLogLine > kMaxBrainLogLines) {
-    resetBrainLog();
-  }
-
   va_start(args, format);
   vsnprintf(buffer, sizeof(buffer), format, args);
   va_end(args);
 
-  robotBrain().Screen.clearLine(BrainLogLine);
-  robotBrain().Screen.setCursor(BrainLogLine, 1);
-  robotBrain().Screen.print("%s", buffer);
-
-  BrainLogLine++;
+  appendBrainLogLine(buffer);
 }
 
 Waypoint* cloneWaypoint(const Waypoint& source) {
@@ -290,58 +492,62 @@ void runIntakeForWaypoint(const Waypoint& waypoint) {
   intake->spin(kIntakeForwardDirection, kIntakeVelocityPct, vex::velocityUnits::pct);
 }
 
-void executeTurn(double signedTurnDegrees) {
-  vex::drivetrain* driveBase = drivetrainFromRobot();
+double executeTurn(double signedTurnDegrees, const MotionProfile& profile) {
+  PidOutputPayload output;
 
-  if (driveBase == NULL) {
-    return;
+  if (!robotHasDrivetrain()) {
+    return 0.0;
   }
 
   if (fabs(signedTurnDegrees) < 0.01) {
     logToBrain("Turn skipped: already aligned");
-    return;
+    return 0.0;
   }
 
   if (signedTurnDegrees < 0.0) {
     logToBrain("Turn left %.1f deg", fabs(signedTurnDegrees));
-    driveBase->turnFor(vex::turnType::left,
-                       fabs(signedTurnDegrees),
-                       vex::rotationUnits::deg,
-                       true);
   } else {
     logToBrain("Turn right %.1f deg", fabs(signedTurnDegrees));
-    driveBase->turnFor(vex::turnType::right,
-                       fabs(signedTurnDegrees),
-                       vex::rotationUnits::deg,
-                       true);
   }
+
+  output = runPidMove(0.0,
+                      signedTurnDegrees,
+                      profile.turnVelocityPct,
+                      profile.stopMode);
+  logToBrain("Turn real %.1f err %.1f",
+             output.turn_real_degrees,
+             output.turn_error_degrees);
+
+  return output.turn_real_degrees;
 }
 
-void executeDrive(double signedDistanceInches) {
-  vex::drivetrain* driveBase = drivetrainFromRobot();
+double executeDrive(double signedDistanceInches, const MotionProfile& profile) {
+  PidOutputPayload output;
 
-  if (driveBase == NULL) {
-    return;
+  if (!robotHasDrivetrain()) {
+    return 0.0;
   }
 
   if (fabs(signedDistanceInches) < 0.01) {
     logToBrain("Drive skipped: zero distance");
-    return;
+    return 0.0;
   }
 
   if (signedDistanceInches < 0.0) {
     logToBrain("Drive reverse %.1f in", fabs(signedDistanceInches));
-    driveBase->driveFor(vex::directionType::rev,
-                        fabs(signedDistanceInches),
-                        vex::distanceUnits::in,
-                        true);
   } else {
     logToBrain("Drive forward %.1f in", signedDistanceInches);
-    driveBase->driveFor(vex::directionType::fwd,
-                        signedDistanceInches,
-                        vex::distanceUnits::in,
-                        true);
   }
+
+  output = runPidMove(signedDistanceInches,
+                      0.0,
+                      profile.driveVelocityPct,
+                      profile.stopMode);
+  logToBrain("Drive real %.1f err %.2f",
+             output.drive_real_inches,
+             output.drive_error_inches);
+
+  return output.drive_real_inches;
 }
 
 void applyMotionProfile(const MotionProfile& profile) {
@@ -354,6 +560,8 @@ void applyMotionProfile(const MotionProfile& profile) {
   driveBase->setDriveVelocity(profile.driveVelocityPct, vex::percentUnits::pct);
   driveBase->setTurnVelocity(profile.turnVelocityPct, vex::percentUnits::pct);
   driveBase->setStopping(profile.stopMode);
+  activeRobot().leftDrive->setStopping(profile.stopMode);
+  activeRobot().rightDrive->setStopping(profile.stopMode);
 }
 
 bool executeWaypoint(const Waypoint& waypoint, int waypointIndex) {
@@ -377,14 +585,17 @@ bool executeWaypoint(const Waypoint& waypoint, int waypointIndex) {
   // while the robot approaches an object or target.
   applyMotionProfile(profile);
   runIntakeForWaypoint(waypoint);
-  executeTurn(requestedTurn);
+  {
+    const double turnDelta = executeTurn(requestedTurn, profile);
+    EstimatedPose.headingDegrees =
+        wrapHeadingDegrees(EstimatedPose.headingDegrees + turnDelta);
+  }
 
-  // The heading estimate is updated immediately after the turn command because
-  // every following drive calculation for this waypoint depends on it.
-  EstimatedPose.headingDegrees = targetHeading;
-
-  executeDrive(signedDistance);
-  updateEstimatedPoseAfterDrive(signedDistance, EstimatedPose.headingDegrees);
+  // Drive uses the heading estimate produced by the completed PID turn.
+  {
+    const double driveDelta = executeDrive(signedDistance, profile);
+    updateEstimatedPoseAfterDrive(driveDelta, EstimatedPose.headingDegrees);
+  }
 
   logToBrain("Pose x=%.1f y=%.1f h=%.1f",
              EstimatedPose.xInches,
@@ -466,9 +677,18 @@ void setBrainVerbose(bool enabled) {
   // When verbose is turned off, clear the old debug text so the Brain screen
   // does not keep stale route messages from a previous run.
   if (!VerboseLoggingEnabled) {
+    BrainLogHistoryStart = 0;
+    BrainLogHistoryCount = 0;
     robotBrain().Screen.clearScreen();
-    BrainLogLine = 1;
   }
+}
+
+void logProgramHalt(void) {
+  if (!VerboseLoggingConfigured) {
+    VerboseLoggingEnabled = kVerboseLoggingDefault;
+  }
+
+  logToBrain("Program Halt");
 }
 
 void engineRunInternal(void) {
