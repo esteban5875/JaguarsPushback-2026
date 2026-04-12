@@ -298,6 +298,41 @@ The flow is:
 5. `auton.cpp` tells the engine to run autonomous.
 6. `usercontrol.cpp` calls the controller program's `execute()` method.
 
+## How The Robot Moves Itself (PID)
+
+The robot does not just spin the motors at a fixed speed and hope it goes where you want.
+Instead, it watches the motors and constantly adjusts the power to make sure it reaches the exact target.
+This tuning system is called PID.
+
+Think of it like this: if you tell the robot to turn 90 degrees, it measures how much it has turned so far.
+If it has only turned 45 degrees, PID says "we are not there yet, keep turning."
+If it turns too fast and overshoots to 95 degrees, PID says "we went too far, slow down and turn back a bit."
+PID constantly reads the sensors and adjusts the motors to stay on target.
+
+PID has three parts:
+
+1. **Proportional (P)** = the main push to reach the target. The further away you are, the harder it pushes.
+2. **Integral (I)** = the memory part. If the robot has been slightly off-target for a while, I adds a little extra push to fix it.
+3. **Derivative (D)** = the brake part. If the robot is getting close to the target too fast, D pulls back to smooth the approach.
+
+In this robot code, PID has two independent controllers:
+
+- **Drive PID** = keeps the robot driving the right distance. It watches the average of left and right motor positions.
+- **Turn PID** = keeps the robot turning to the right heading. It watches the difference between left and right motor positions.
+
+Each controller uses its own P, I, and D values to decide how hard to push.
+You can tune these values individually to make drives smooth or sharp, and turns fast or gentle.
+For example, if the robot overshoots the target and bounces back and forth, you probably have too much P or D.
+If the robot creeps slowly to the target, you probably need more P.
+
+When you see the debug log during autonomous, the PID messages show you what each part is doing:
+
+- How much the P, I, and D parts are contributing
+- How far the distance error is (in inches) and how much power is being sent to fix it
+- How far the heading error is (in degrees) and how much power is being sent to fix it
+
+This lets you watch the PID work in real time and tune the gains without reading the engine code.
+
 ## Tour
 
 `src/main.cpp`
