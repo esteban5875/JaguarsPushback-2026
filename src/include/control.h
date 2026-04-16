@@ -25,10 +25,5 @@ typedef enum MovementType {
   AXIS = 2
 } MovementType;
 
-// Configures which controller buttons run the intake inward and forward during
-// driver control.
-void setControllerButtons(ControllerButton intakeInButton,
-                          ControllerButton intakeForwardButton);
-
 // Selects how the drivetrain is controlled during driver control.
 void set_movement_type(MovementType movementType);

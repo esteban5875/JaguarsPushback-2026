@@ -1,28 +1,24 @@
-#include "../../include/engine/private.h"
 #include "../../include/spec/private.h"
+#include "../../include/control/constants.h"
 #include "../pid/include/private.h"
 #include "../pid/include/params.h"
+#include "../../include/actions.h"
 
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <vex.h>
 
-vex::competition Competition;
+using namespace vex;
 
-namespace {
+competition Competition;
+
 const double kPi = 3.14159265358979323846;
 const int kMaxBrainLogLines = 12;
 const int kBrainLogHistoryLines = 64;
 const int kLogBufferSize = 96;
 const int kMaxPidLoopCount = 400;
-const double kIntakeVelocityPct = 80.0;
-
-// These are prototype defaults for the two intake behaviors requested.
-// If the intake spins the wrong way on a real robot, flip the intake motor
-// reversed flag in loadPrototypeRobot() or tune these constants later.
-const vex::directionType kIntakeInwardDirection = vex::directionType::fwd;
-const vex::directionType kIntakeForwardDirection = vex::directionType::rev;
 
 // Internal robot state used for debug math and autonomous planning.
 typedef struct RobotPose {
@@ -37,8 +33,7 @@ typedef struct MotionProfile {
   vex::brakeType stopMode;
 } MotionProfile;
 
-Waypoint* RouteHead = NULL;
-Waypoint* RouteTail = NULL;
+
 int RouteCount = 0;
 
 bool VerboseLoggingEnabled = false;
@@ -56,7 +51,7 @@ const bool kVerboseLoggingDefault = true;
 RobotPose ConfiguredStartPose = {0.0, 0.0, 0.0};
 RobotPose EstimatedPose = {0.0, 0.0, 0.0};
 
-void logToBrain(const char* format, ...);
+void logToBrain(const char* format, ...); 
 
 Robot& activeRobot() {
   return getRobotInternal();
@@ -71,24 +66,12 @@ bool robotHasDrivetrain() {
          activeRobot().leftDrive != NULL && activeRobot().rightDrive != NULL;
 }
 
-bool robotHasIntake() {
-  return activeRobot().hasIntake && activeRobot().intake != NULL;
-}
-
 vex::drivetrain* drivetrainFromRobot() {
   if (!robotHasDrivetrain()) {
     return NULL;
   }
 
   return activeRobot().drivetrain;
-}
-
-vex::motor_group* intakeFromRobot() {
-  if (!robotHasIntake()) {
-    return NULL;
-  }
-
-  return activeRobot().intake;
 }
 
 double averageMotorDegrees(vex::motor* motors[], int motorCount) {
@@ -245,114 +228,6 @@ PidOutputPayload runPidMove(double expectedDriveInches,
   return output;
 }
 
-double wrapHeadingDegrees(double degrees) {
-  while (degrees < 0.0) {
-    degrees += 360.0;
-  }
-
-  while (degrees >= 360.0) {
-    degrees -= 360.0;
-  }
-
-  return degrees;
-}
-
-double smallestTurnDegrees(double requestedTurn) {
-  while (requestedTurn <= -180.0) {
-    requestedTurn += 360.0;
-  }
-
-  while (requestedTurn > 180.0) {
-    requestedTurn -= 360.0;
-  }
-
-  return requestedTurn;
-}
-
-const char* waypointTypeName(WaypointType type) {
-  switch (type) {
-    case TARGET:
-      return "TARGET";
-    case OBJECT:
-      return "OBJECT";
-    case PARK:
-      return "PARK";
-    case COORD:
-      return "COORD";
-    default:
-      return "UNKNOWN";
-  }
-}
-
-const char* teamColorName(Color team) {
-  switch (team) {
-    case NONE:
-      return "NONE";
-    case BLUE:
-      return "BLUE";
-    case RED:
-      return "RED";
-    default:
-      return "UNKNOWN";
-  }
-}
-
-MotionProfile motionProfileForWaypoint(WaypointType type) {
-  MotionProfile profile;
-
-  // Different waypoint intents usually need different aggression levels.
-  // These defaults are conservative so the prototype is easier to watch and
-  // debug on the field.
-  switch (type) {
-    case TARGET:
-      profile.driveVelocityPct = 35.0;
-      profile.turnVelocityPct = 25.0;
-      profile.stopMode = vex::brakeType::hold;
-      break;
-    case OBJECT:
-      profile.driveVelocityPct = 40.0;
-      profile.turnVelocityPct = 30.0;
-      profile.stopMode = vex::brakeType::hold;
-      break;
-    case PARK:
-      profile.driveVelocityPct = 60.0;
-      profile.turnVelocityPct = 40.0;
-      profile.stopMode = vex::brakeType::brake;
-      break;
-    case COORD:
-    default:
-      profile.driveVelocityPct = 50.0;
-      profile.turnVelocityPct = 35.0;
-      profile.stopMode = vex::brakeType::brake;
-      break;
-  }
-
-  return profile;
-}
-
-void configureHardwareIfNeeded() {
-  vex::drivetrain* driveBase = drivetrainFromRobot();
-
-  if (HardwareConfigured) {
-    return;
-  }
-
-  if (driveBase == NULL) {
-    return;
-  }
-
-  // One-time drivetrain defaults that every autonomous run should inherit.
-  driveBase->setTimeout(4, vex::timeUnits::sec);
-  driveBase->setDriveVelocity(40, vex::percentUnits::pct);
-  driveBase->setTurnVelocity(30, vex::percentUnits::pct);
-  driveBase->setStopping(vex::brakeType::brake);
-
-  activeRobot().leftDrive->setStopping(vex::brakeType::brake);
-  activeRobot().rightDrive->setStopping(vex::brakeType::brake);
-
-  HardwareConfigured = true;
-}
-
 void resetBrainLog() {
   if (!VerboseLoggingEnabled) {
     return;
@@ -423,73 +298,7 @@ void logToBrain(const char* format, ...) {
   va_end(args);
 
   appendBrainLogLine(buffer);
-}
-
-Waypoint* cloneWaypoint(const Waypoint& source) {
-  Waypoint* copy = (Waypoint*)malloc(sizeof(Waypoint));
-
-  if (copy == NULL) {
-    logToBrain("Route append failed: no memory");
-    return NULL;
-  }
-
-  *copy = source;
-  copy->next = NULL;
-
-  return copy;
-}
-
-void resetDriveEncoders() {
-  if (!robotHasDrivetrain()) {
-    return;
-  }
-
-  activeRobot().leftDrive->resetPosition();
-  activeRobot().rightDrive->resetPosition();
-}
-
-void copyConfiguredPoseIntoEstimate() {
-  EstimatedPose = ConfiguredStartPose;
-}
-
-void updateEstimatedPoseAfterDrive(double signedDistanceInches, double headingDegrees) {
-  const double radians = headingDegrees * (kPi / 180.0);
-
-  EstimatedPose.xInches += cos(radians) * signedDistanceInches;
-  EstimatedPose.yInches += sin(radians) * signedDistanceInches;
-}
-
-void stopIntake() {
-  vex::motor_group* intake = intakeFromRobot();
-
-  if (intake == NULL) {
-    return;
-  }
-
-  intake->stop(vex::brakeType::coast);
-}
-
-void runIntakeForWaypoint(const Waypoint& waypoint) {
-  vex::motor_group* intake = intakeFromRobot();
-
-  if (waypoint.type != OBJECT && waypoint.type != TARGET) {
-    stopIntake();
-    return;
-  }
-
-  if (intake == NULL) {
-    logToBrain("No intake for %s", waypointTypeName(waypoint.type));
-    return;
-  }
-
-  if (waypoint.type == OBJECT) {
-    logToBrain("Intake inward %.0f pct", kIntakeVelocityPct);
-    intake->spin(kIntakeInwardDirection, kIntakeVelocityPct, vex::velocityUnits::pct);
-    return;
-  }
-
-  logToBrain("Intake forward %.0f pct", kIntakeVelocityPct);
-  intake->spin(kIntakeForwardDirection, kIntakeVelocityPct, vex::velocityUnits::pct);
+  wait(50, msec);  // Small delay to make logs readable
 }
 
 double executeTurn(double signedTurnDegrees, const MotionProfile& profile) {
@@ -550,126 +359,6 @@ double executeDrive(double signedDistanceInches, const MotionProfile& profile) {
   return output.drive_real_inches;
 }
 
-void applyMotionProfile(const MotionProfile& profile) {
-  vex::drivetrain* driveBase = drivetrainFromRobot();
-
-  if (driveBase == NULL) {
-    return;
-  }
-
-  driveBase->setDriveVelocity(profile.driveVelocityPct, vex::percentUnits::pct);
-  driveBase->setTurnVelocity(profile.turnVelocityPct, vex::percentUnits::pct);
-  driveBase->setStopping(profile.stopMode);
-  activeRobot().leftDrive->setStopping(profile.stopMode);
-  activeRobot().rightDrive->setStopping(profile.stopMode);
-}
-
-bool executeWaypoint(const Waypoint& waypoint, int waypointIndex) {
-  const double targetHeading = wrapHeadingDegrees((double)waypoint.direction);
-  const double requestedTurn =
-      smallestTurnDegrees(targetHeading - EstimatedPose.headingDegrees);
-  const MotionProfile profile = motionProfileForWaypoint(waypoint.type);
-  const double signedDistance = (double)waypoint.distance;
-
-  logToBrain("WP %d/%d %s %s",
-             waypointIndex,
-             RouteCount,
-             waypointTypeName(waypoint.type),
-             teamColorName(waypoint.team));
-  logToBrain("Target heading %.1f deg", targetHeading);
-  logToBrain("Profile drive %.0f turn %.0f",
-             profile.driveVelocityPct,
-             profile.turnVelocityPct);
-
-  // Intake actions start before the move so the mechanism is already active
-  // while the robot approaches an object or target.
-  applyMotionProfile(profile);
-  runIntakeForWaypoint(waypoint);
-  {
-    const double turnDelta = executeTurn(requestedTurn, profile);
-    EstimatedPose.headingDegrees =
-        wrapHeadingDegrees(EstimatedPose.headingDegrees + turnDelta);
-  }
-
-  // Drive uses the heading estimate produced by the completed PID turn.
-  {
-    const double driveDelta = executeDrive(signedDistance, profile);
-    updateEstimatedPoseAfterDrive(driveDelta, EstimatedPose.headingDegrees);
-  }
-
-  logToBrain("Pose x=%.1f y=%.1f h=%.1f",
-             EstimatedPose.xInches,
-             EstimatedPose.yInches,
-             EstimatedPose.headingDegrees);
-
-  if (waypoint.type == PARK) {
-    stopIntake();
-    logToBrain("Park reached: stop route");
-    return false;
-  }
-
-  if (waypoint.type == COORD) {
-    logToBrain("Coord reached: continue");
-  }
-
-  stopIntake();
-  return true;
-}
-
-WaypointType waypointTypeFromCode(int typeCode) {
-  switch (typeCode) {
-    case TARGET:
-      return TARGET;
-    case OBJECT:
-      return OBJECT;
-    case PARK:
-      return PARK;
-    case COORD:
-    default:
-      return COORD;
-  }
-}
-
-Color colorFromCode(int colorCode) {
-  switch (colorCode) {
-    case BLUE:
-      return BLUE;
-    case RED:
-      return RED;
-    case NONE:
-    default:
-      return NONE;
-  }
-}
-}  // namespace
-
-void addwaypoint(float distance, int direction, int type, int color) {
-  Waypoint waypoint;
-  Waypoint* copy;
-
-  waypoint.distance = distance;
-  waypoint.direction = direction;
-  waypoint.type = waypointTypeFromCode(type);
-  waypoint.team = colorFromCode(color);
-  waypoint.next = NULL;
-
-  copy = cloneWaypoint(waypoint);
-
-  if (copy == NULL) {
-    return;
-  }
-
-  if (RouteHead == NULL) {
-    RouteHead = copy;
-    RouteTail = copy;
-  } else {
-    RouteTail->next = copy;
-    RouteTail = copy;
-  }
-
-  RouteCount++;
-}
-
 void setBrainVerbose(bool enabled) {
   VerboseLoggingEnabled = enabled;
   VerboseLoggingConfigured = true;
@@ -691,51 +380,118 @@ void logProgramHalt(void) {
   logToBrain("Program Halt");
 }
 
-void engineRunInternal(void) {
-  Waypoint* current = RouteHead;
-  int waypointIndex = 1;
-  vex::drivetrain* driveBase = drivetrainFromRobot();
+// Drive action: positive = forward, negative = reverse
+void driveAction(double signedDistanceInches) {
+  MotionProfile profile = {50.0, 35.0, vex::brakeType::brake};
+  executeDrive(signedDistanceInches, profile);
+}
 
-  if (!VerboseLoggingConfigured) {
-    VerboseLoggingEnabled = kVerboseLoggingDefault;
-  }
-  HardwareConfigured = false;
+// Turn action: positive = right, negative = left
+void turnAction(double signedDegrees) {
+  MotionProfile profile = {50.0, 35.0, vex::brakeType::brake};
+  executeTurn(signedDegrees, profile);
+}
 
-  if (driveBase == NULL) {
-    resetBrainLog();
-    logToBrain("No drivetrain configured");
+// Intake action: direction > 0 = forward, direction < 0 = reverse, duration in milliseconds
+void intakeAction(int direction, int durationMs) {
+  Robot& robot = activeRobot();
+
+  if (!robot.hasIntakeMotor || robot.intakeMotor == NULL) {
     return;
   }
 
-  configureHardwareIfNeeded();
-  resetDriveEncoders();
-  copyConfiguredPoseIntoEstimate();
-
-  if (VerboseLoggingEnabled) {
-    resetBrainLog();
-    logToBrain("Waypoint route start");
-    logToBrain("Waypoints queued: %d", RouteCount);
-    logToBrain("Start pose x=%.1f y=%.1f h=%.1f",
-               EstimatedPose.xInches,
-               EstimatedPose.yInches,
-               EstimatedPose.headingDegrees);
+  if (direction > 0) {
+    robot.intakeMotor->spin(vex::directionType::fwd, TAKE_SPEED_RPM, vex::velocityUnits::rpm);
+  } else if (direction < 0) {
+    robot.intakeMotor->spin(vex::directionType::rev, TAKE_SPEED_RPM, vex::velocityUnits::rpm);
+  } else {
+    robot.intakeMotor->stop(vex::brakeType::coast);
   }
 
-  if (current == NULL) {
-    logToBrain("No waypoints queued");
+  wait(durationMs, msec);
+  robot.intakeMotor->stop(vex::brakeType::coast);
+}
+
+// UpTake action: direction > 0 = forward, direction < 0 = reverse, duration in milliseconds
+void uptakeAction(int direction, int durationMs) {
+  Robot& robot = activeRobot();
+
+  if (!robot.hasUpTakeMotor || robot.upTakeMotor == NULL) {
     return;
   }
 
-  while (current != NULL) {
-    if (!executeWaypoint(*current, waypointIndex)) {
-      break;
-    }
-
-    current = current->next;
-    waypointIndex++;
+  if (direction > 0) {
+    robot.upTakeMotor->spin(vex::directionType::fwd, TAKE_SPEED_RPM, vex::velocityUnits::rpm);
+  } else if (direction < 0) {
+    robot.upTakeMotor->spin(vex::directionType::rev, TAKE_SPEED_RPM, vex::velocityUnits::rpm);
+  } else {
+    robot.upTakeMotor->stop(vex::brakeType::coast);
   }
 
-  stopIntake();
-  driveBase->stop(vex::brakeType::brake);
-  logToBrain("Route complete");
+  wait(durationMs, msec);
+  robot.upTakeMotor->stop(vex::brakeType::coast);
+}
+
+// MidTake action: direction > 0 = forward, direction < 0 = reverse, duration in milliseconds
+void midtakeAction(int direction, int durationMs) {
+  Robot& robot = activeRobot();
+
+  if (!robot.hasMidTakeMotor || robot.midTakeMotor == NULL) {
+    return;
+  }
+
+  if (direction > 0) {
+    robot.midTakeMotor->spin(vex::directionType::fwd, TAKE_SPEED_RPM, vex::velocityUnits::rpm);
+  } else if (direction < 0) {
+    robot.midTakeMotor->spin(vex::directionType::rev, TAKE_SPEED_RPM, vex::velocityUnits::rpm);
+  } else {
+    robot.midTakeMotor->stop(vex::brakeType::coast);
+  }
+
+  wait(durationMs, msec);
+  robot.midTakeMotor->stop(vex::brakeType::coast);
+}
+
+// Scoop activate
+void scoopActivate() {
+  Robot& robot = activeRobot();
+
+  if (!robot.hasScoop || robot.scoopPiston == NULL) {
+    return;
+  }
+
+  robot.scoopPiston->open();
+}
+
+// Scoop deactivate
+void scoopDeactivate() {
+  Robot& robot = activeRobot();
+
+  if (!robot.hasScoop || robot.scoopPiston == NULL) {
+    return;
+  }
+
+  robot.scoopPiston->close();
+}
+
+// Arm activate
+void armActivate() {
+  Robot& robot = activeRobot();
+
+  if (!robot.hasArm || robot.armPiston == NULL) {
+    return;
+  }
+
+  robot.armPiston->open();
+}
+
+// Arm deactivate
+void armDeactivate() {
+  Robot& robot = activeRobot();
+
+  if (!robot.hasArm || robot.armPiston == NULL) {
+    return;
+  }
+
+  robot.armPiston->close();
 }

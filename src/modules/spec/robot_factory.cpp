@@ -50,14 +50,31 @@ void clearMotorArray(vex::motor* motors[], int& motorCount) {
   motorCount = 0;
 }
 
-void clearIntake() {
-  if (ActiveRobot.intake != NULL) {
-    delete ActiveRobot.intake;
-    ActiveRobot.intake = NULL;
+void clearIntakeMotor() {
+  if (ActiveRobot.intakeMotor != NULL) {
+    delete ActiveRobot.intakeMotor;
+    ActiveRobot.intakeMotor = NULL;
   }
 
-  clearMotorArray(ActiveRobot.intakeMotors, ActiveRobot.intakeMotorCount);
-  ActiveRobot.hasIntake = false;
+  ActiveRobot.hasIntakeMotor = false;
+}
+
+void clearUpTakeMotor() {
+  if (ActiveRobot.upTakeMotor != NULL) {
+    delete ActiveRobot.upTakeMotor;
+    ActiveRobot.upTakeMotor = NULL;
+  }
+
+  ActiveRobot.hasUpTakeMotor = false;
+}
+
+void clearMidTakeMotor() {
+  if (ActiveRobot.midTakeMotor != NULL) {
+    delete ActiveRobot.midTakeMotor;
+    ActiveRobot.midTakeMotor = NULL;
+  }
+
+  ActiveRobot.hasMidTakeMotor = false;
 }
 
 void clearDrivetrain() {
@@ -80,11 +97,33 @@ void clearDrivetrain() {
   clearMotorArray(ActiveRobot.rightDriveMotors, ActiveRobot.rightDriveMotorCount);
   ActiveRobot.hasDrivetrain = false;
 }
+
+void clearScoopPiston() {
+  if (ActiveRobot.scoopPiston != NULL) {
+    delete ActiveRobot.scoopPiston;
+    ActiveRobot.scoopPiston = NULL;
+  }
+
+  ActiveRobot.hasScoop = false;
+}
+
+void clearArmPiston() {
+  if (ActiveRobot.armPiston != NULL) {
+    delete ActiveRobot.armPiston;
+    ActiveRobot.armPiston = NULL;
+  }
+
+  ActiveRobot.hasArm = false;
+}
 }  // namespace
 
 void RobotFactory::reset() {
-  clearIntake();
+  clearIntakeMotor();
+  clearUpTakeMotor();
+  clearMidTakeMotor();
   clearDrivetrain();
+  clearScoopPiston();
+  clearArmPiston();
 
   if (ActiveRobot.controller != NULL) {
     delete ActiveRobot.controller;
@@ -108,91 +147,74 @@ void RobotFactory::setController(RobotControllerType controllerType) {
   ActiveRobot.hasController = true;
 }
 
-void RobotFactory::setIntake(const RobotMotor motors[], int motorCount) {
-  int index = 0;
+void RobotFactory::setIntake(int port, RobotGear gear, bool reversed) {
+  clearIntakeMotor();
 
-  clearIntake();
-
-  if (motorCount < 0) {
-    motorCount = 0;
-  }
-
-  if (motorCount > kRobotFactoryMaxMotors) {
-    motorCount = kRobotFactoryMaxMotors;
-  }
-
-  ActiveRobot.intake = new vex::motor_group();
-
-  for (index = 0; index < motorCount; index++) {
-    ActiveRobot.intakeMotors[index] =
-        new vex::motor(motors[index].port, toVexGear(motors[index].gear), motors[index].reversed);
-    (*ActiveRobot.intake)(*ActiveRobot.intakeMotors[index]);
-    ActiveRobot.intakeMotorCount++;
-  }
-
-  ActiveRobot.hasIntake = (ActiveRobot.intakeMotorCount > 0);
+  ActiveRobot.intakeMotor = new vex::motor(port, toVexGear(gear), reversed);
+  ActiveRobot.hasIntakeMotor = true;
 }
 
-void RobotFactory::setDrivetrain(const RobotMotor leftMotors[],
-                                 int leftMotorCount,
-                                 const RobotMotor rightMotors[],
-                                 int rightMotorCount,
-                                 double wheelTravel,
-                                 double trackWidth,
-                                 double wheelBase,
-                                 RobotDistanceUnit distanceUnit,
-                                 double externalGearRatio) {
-  int index = 0;
+void RobotFactory::setUpTake(int port, RobotGear gear, bool reversed) {
+  clearUpTakeMotor();
 
+  ActiveRobot.upTakeMotor = new vex::motor(port, toVexGear(gear), reversed);
+  ActiveRobot.hasUpTakeMotor = true;
+}
+
+void RobotFactory::setMidTake(int port, RobotGear gear, bool reversed) {
+  clearMidTakeMotor();
+
+  ActiveRobot.midTakeMotor = new vex::motor(port, toVexGear(gear), reversed);
+  ActiveRobot.hasMidTakeMotor = true;
+}
+
+void RobotFactory::setDrivetrain(double ratio, int port1, int port2, int port3, int port4,
+                                 double trackWidth, double wheelBase) {
   clearDrivetrain();
 
-  if (leftMotorCount < 0) {
-    leftMotorCount = 0;
-  }
+  // Create left drive motors (forward)
+  ActiveRobot.leftDriveMotors[0] = new vex::motor(port1, vex::gearSetting::ratio18_1, false);
+  ActiveRobot.leftDriveMotors[1] = new vex::motor(port2, vex::gearSetting::ratio18_1, false);
+  ActiveRobot.leftDriveMotorCount = 2;
 
-  if (rightMotorCount < 0) {
-    rightMotorCount = 0;
-  }
+  // Create right drive motors (reversed for opposite direction)
+  ActiveRobot.rightDriveMotors[0] = new vex::motor(port3, vex::gearSetting::ratio18_1, true);
+  ActiveRobot.rightDriveMotors[1] = new vex::motor(port4, vex::gearSetting::ratio18_1, true);
+  ActiveRobot.rightDriveMotorCount = 2;
 
-  if (leftMotorCount > kRobotFactoryMaxMotors) {
-    leftMotorCount = kRobotFactoryMaxMotors;
-  }
-
-  if (rightMotorCount > kRobotFactoryMaxMotors) {
-    rightMotorCount = kRobotFactoryMaxMotors;
-  }
-
+  // Add motors to groups
   ActiveRobot.leftDrive = new vex::motor_group();
   ActiveRobot.rightDrive = new vex::motor_group();
+  (*ActiveRobot.leftDrive)(*ActiveRobot.leftDriveMotors[0]);
+  (*ActiveRobot.leftDrive)(*ActiveRobot.leftDriveMotors[1]);
+  (*ActiveRobot.rightDrive)(*ActiveRobot.rightDriveMotors[0]);
+  (*ActiveRobot.rightDrive)(*ActiveRobot.rightDriveMotors[1]);
 
-  for (index = 0; index < leftMotorCount; index++) {
-    ActiveRobot.leftDriveMotors[index] =
-        new vex::motor(leftMotors[index].port,
-                       toVexGear(leftMotors[index].gear),
-                       leftMotors[index].reversed);
-    (*ActiveRobot.leftDrive)(*ActiveRobot.leftDriveMotors[index]);
-    ActiveRobot.leftDriveMotorCount++;
-  }
+  double wheelTravelMm = 3.25 * 25.4;  // 3.25 inch wheel * 25.4 mm/inch
+  double gearRatio = (56.0 / 36.0) * ratio;  // external gear ratio * motor ratio
 
-  for (index = 0; index < rightMotorCount; index++) {
-    ActiveRobot.rightDriveMotors[index] =
-        new vex::motor(rightMotors[index].port,
-                       toVexGear(rightMotors[index].gear),
-                       rightMotors[index].reversed);
-    (*ActiveRobot.rightDrive)(*ActiveRobot.rightDriveMotors[index]);
-    ActiveRobot.rightDriveMotorCount++;
-  }
+  ActiveRobot.drivetrain = new vex::drivetrain(*ActiveRobot.leftDrive,
+                                               *ActiveRobot.rightDrive,
+                                               wheelTravelMm,
+                                               trackWidth,
+                                               wheelBase,
+                                               vex::distanceUnits::mm,
+                                               gearRatio);
+  ActiveRobot.hasDrivetrain = true;
+}
 
-  if (ActiveRobot.leftDriveMotorCount > 0 && ActiveRobot.rightDriveMotorCount > 0) {
-    ActiveRobot.drivetrain = new vex::drivetrain(*ActiveRobot.leftDrive,
-                                                 *ActiveRobot.rightDrive,
-                                                 wheelTravel,
-                                                 trackWidth,
-                                                 wheelBase,
-                                                 toVexDistanceUnit(distanceUnit),
-                                                 externalGearRatio);
-    ActiveRobot.hasDrivetrain = true;
-  }
+void RobotFactory::setScoop(vex::triport::port& port) {
+  clearScoopPiston();
+
+  ActiveRobot.scoopPiston = new vex::pneumatics(port);
+  ActiveRobot.hasScoop = true;
+}
+
+void RobotFactory::setArm(vex::triport::port& port) {
+  clearArmPiston();
+
+  ActiveRobot.armPiston = new vex::pneumatics(port);
+  ActiveRobot.hasArm = true;
 }
 
 Robot& getRobotInternal(void) {

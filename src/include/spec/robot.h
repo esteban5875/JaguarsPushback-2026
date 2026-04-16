@@ -13,22 +13,28 @@ class Robot {
     int index = 0;
 
     controller = NULL;
-    intake = NULL;
+    intakeMotor = NULL;
+    upTakeMotor = NULL;
+    midTakeMotor = NULL;
     drivetrain = NULL;
     leftDrive = NULL;
     rightDrive = NULL;
+    scoopPiston = NULL;
+    armPiston = NULL;
 
-    intakeMotorCount = 0;
     leftDriveMotorCount = 0;
     rightDriveMotorCount = 0;
 
     hasBrain = true;
     hasController = false;
-    hasIntake = false;
+    hasIntakeMotor = false;
+    hasUpTakeMotor = false;
+    hasMidTakeMotor = false;
     hasDrivetrain = false;
+    hasScoop = false;
+    hasArm = false;
 
     for (index = 0; index < kRobotFactoryMaxMotors; index++) {
-      intakeMotors[index] = NULL;
       leftDriveMotors[index] = NULL;
       rightDriveMotors[index] = NULL;
     }
@@ -38,15 +44,16 @@ class Robot {
 
   vex::brain brain;
   vex::controller* controller;
-  vex::motor_group* intake;
+  vex::motor* intakeMotor;
+  vex::motor* upTakeMotor;
+  vex::motor* midTakeMotor;
   vex::drivetrain* drivetrain;
   vex::motor_group* leftDrive;
   vex::motor_group* rightDrive;
+  vex::pneumatics* scoopPiston;
+  vex::pneumatics* armPiston;
 
   // Backing groups and motors kept alive for the VEX group/drivetrain objects.
-  vex::motor* intakeMotors[kRobotFactoryMaxMotors];
-  int intakeMotorCount;
-
   vex::motor* leftDriveMotors[kRobotFactoryMaxMotors];
   int leftDriveMotorCount;
 
@@ -55,6 +62,10 @@ class Robot {
 
   bool hasBrain;
   bool hasController;
-  bool hasIntake;
+  bool hasIntakeMotor;
+  bool hasUpTakeMotor;
+  bool hasMidTakeMotor;
   bool hasDrivetrain;
+  bool hasScoop;
+  bool hasArm;
 };

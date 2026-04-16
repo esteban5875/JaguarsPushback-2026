@@ -3,11 +3,8 @@
 
 namespace {
 const int kDriveDeadbandPct = 5;
-const double kIntakeDriverVelocityPct = 100.0;
 const int kButtonDriveVelocityPct = 80;
 const int kButtonTurnVelocityPct = 60;
-const vex::directionType kIntakeInwardDirection = vex::directionType::fwd;
-const vex::directionType kIntakeForwardDirection = vex::directionType::rev;
 
 ControllerProgram ActiveControllerProgram;
 
@@ -22,10 +19,6 @@ bool robotHasController() {
 bool robotHasDrivetrain() {
   return activeRobot().hasDrivetrain && activeRobot().leftDrive != NULL &&
          activeRobot().rightDrive != NULL;
-}
-
-bool robotHasIntake() {
-  return activeRobot().hasIntake && activeRobot().intake != NULL;
 }
 
 int applyDeadband(int valuePct) {
@@ -111,14 +104,6 @@ void spinDriveGroup(vex::motor_group* driveGroup, int velocityPct) {
   driveGroup->spin(vex::directionType::fwd, velocityPct, vex::velocityUnits::pct);
 }
 
-void stopIntake() {
-  if (!robotHasIntake()) {
-    return;
-  }
-
-  activeRobot().intake->stop(vex::brakeType::coast);
-}
-
 void runAxisDriveMode() {
   const int forwardVelocityPct =
       applyDeadband(activeRobot().controller->Axis2.position(vex::percentUnits::pct));
@@ -166,15 +151,7 @@ ControllerProgram::ControllerProgram() {
 }
 
 void ControllerProgram::reset() {
-  intakeInButton_ = CONTROLLER_BUTTON_NONE;
-  intakeForwardButton_ = CONTROLLER_BUTTON_NONE;
   movementType_ = AXIS;
-}
-
-void ControllerProgram::configureButtons(ControllerButton intakeInButton,
-                                         ControllerButton intakeForwardButton) {
-  intakeInButton_ = intakeInButton;
-  intakeForwardButton_ = intakeForwardButton;
 }
 
 void ControllerProgram::configureMovementType(MovementType movementType) {
@@ -185,7 +162,6 @@ void ControllerProgram::execute() {
   while (true) {
     if (!robotHasController()) {
       stopDrive();
-      stopIntake();
       wait(20, vex::msec);
       continue;
     }
@@ -195,20 +171,6 @@ void ControllerProgram::execute() {
         runButtonDriveMode();
       } else {
         runAxisDriveMode();
-      }
-    }
-
-    if (robotHasIntake()) {
-      if (isButtonPressed(intakeInButton_)) {
-        activeRobot().intake->spin(kIntakeInwardDirection,
-                                   kIntakeDriverVelocityPct,
-                                   vex::velocityUnits::pct);
-      } else if (isButtonPressed(intakeForwardButton_)) {
-        activeRobot().intake->spin(kIntakeForwardDirection,
-                                   kIntakeDriverVelocityPct,
-                                   vex::velocityUnits::pct);
-      } else {
-        stopIntake();
       }
     }
 
@@ -222,11 +184,6 @@ ControllerProgram& getControllerProgramInternal(void) {
 
 void resetControllerProgramInternal(void) {
   ActiveControllerProgram.reset();
-}
-
-void setControllerButtons(ControllerButton intakeInButton,
-                          ControllerButton intakeForwardButton) {
-  ActiveControllerProgram.configureButtons(intakeInButton, intakeForwardButton);
 }
 
 void set_movement_type(MovementType movementType) {

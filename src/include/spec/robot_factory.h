@@ -33,14 +33,11 @@ class RobotFactory {
   static void reset();
   static void setBrain();
   static void setController(RobotControllerType controllerType = ROBOT_CONTROLLER_PRIMARY);
-  static void setIntake(const RobotMotor motors[], int motorCount);
-  static void setDrivetrain(const RobotMotor leftMotors[],
-                            int leftMotorCount,
-                            const RobotMotor rightMotors[],
-                            int rightMotorCount,
-                            double wheelTravel,
-                            double trackWidth,
-                            double wheelBase,
-                            RobotDistanceUnit distanceUnit,
-                            double externalGearRatio = 1.0);
+  static void setIntake(int port, RobotGear gear = ROBOT_GEAR_18_1, bool reversed = false);
+  static void setUpTake(int port, RobotGear gear = ROBOT_GEAR_18_1, bool reversed = false);
+  static void setMidTake(int port, RobotGear gear = ROBOT_GEAR_18_1, bool reversed = false);
+  static void setDrivetrain(double ratio, int port1, int port2, int port3, int port4,
+                            double trackWidth, double wheelBase);
+  static void setScoop(vex::triport::port& port);
+  static void setArm(vex::triport::port& port);
 };
